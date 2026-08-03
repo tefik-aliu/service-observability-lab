@@ -1,0 +1,31 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests per second",
+      "targets": [{"expr": "sum(rate(service_lab_http_requests_total[1m]))", "legendFormat": "requests/s"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "P95 latency",
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(service_lab_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Jobs by status",
+      "targets": [{"expr": "service_lab_jobs_by_status", "legendFormat": "{{status}}"}],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+    }
+  ],
+  "schemaVersion": 41,
+  "tags": ["fastapi", "observability", "portfolio"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "title": "Service Observability Lab",
+  "uid": "service-observability-lab",
+  "version": 1
+}

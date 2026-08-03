@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Service Observability Lab</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+    body { margin: 0; background: #0b1020; color: #e8ecf8; }
+    main { max-width: 960px; margin: auto; padding: 48px 20px; }
+    .hero, .panel { background: #121a31; border: 1px solid #2a3558; border-radius: 18px; padding: 24px; margin-bottom: 20px; }
+    h1 { margin-top: 0; font-size: clamp(2rem, 6vw, 4rem); }
+    .badges { display:flex; gap:10px; flex-wrap:wrap; margin: 20px 0; }
+    .badge { background:#1e2947; border-radius:999px; padding:8px 12px; }
+    form { display:grid; grid-template-columns: 1fr auto; gap: 10px; }
+    input, button, select { border-radius:10px; border:1px solid #405080; padding:12px; font:inherit; }
+    input, select { background:#0d1428; color:#fff; }
+    button { background:#7b8cff; color:#081021; font-weight:700; cursor:pointer; }
+    ul { padding:0; list-style:none; }
+    li { display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; padding:14px 0; border-bottom:1px solid #273354; }
+    small { color:#aeb8d3; }
+    a { color:#aab6ff; }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <h1>Service Observability Lab</h1>
+    <p>A container-ready FastAPI service with PostgreSQL, Prometheus, Grafana, OpenTelemetry, Kubernetes manifests and automated QA.</p>
+    <div class="badges">
+      <span class="badge">FastAPI</span><span class="badge">PostgreSQL</span><span class="badge">Prometheus</span>
+      <span class="badge">Grafana</span><span class="badge">OpenTelemetry</span><span class="badge">Kubernetes</span>
+    </div>
+    <a href="/docs">Open API documentation</a> · <a href="/metrics">View metrics</a>
+  </section>
+  <section class="panel">
+    <h2>Create a background job</h2>
+    <form id="job-form">
+      <input id="job-title" data-testid="job-title" minlength="3" placeholder="Generate weekly operations report" required />
+      <button data-testid="create-job" type="submit">Create job</button>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>Jobs</h2>
+    <ul id="jobs" data-testid="jobs-list"></ul>
+  </section>
+</main>
+<script>
+const jobsEl = document.querySelector('#jobs');
+async function loadJobs() {
+  const response = await fetch('/api/jobs');
+  const jobs = await response.json();
+  jobsEl.innerHTML = jobs.map(job => `
+    <li data-testid="job-row">
+      <div><strong>${job.title}</strong><br><small>#${job.id} · ${new Date(job.created_at).toLocaleString()}</small></div>
+      <select data-id="${job.id}" aria-label="Status for ${job.title}">
+        ${['queued','running','completed','failed'].map(s => `<option ${s === job.status ? 'selected' : ''}>${s}</option>`).join('')}
+      </select>
+    </li>`).join('') || '<li>No jobs yet.</li>';
+}
+document.querySelector('#job-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const input = document.querySelector('#job-title');
+  await fetch('/api/jobs', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:input.value})});
+  input.value = '';
+  await loadJobs();
+});
+jobsEl.addEventListener('change', async event => {
+  if (event.target.matches('select[data-id]')) {
+    await fetch(`/api/jobs/${event.target.dataset.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:event.target.value})});
+    await loadJobs();
+  }
+});
+loadJobs();
+</script>
+</body>
+</html>
