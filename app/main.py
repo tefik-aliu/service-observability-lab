@@ -44,12 +44,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.middleware("http")(metrics_middleware)
     configure_telemetry(app)
 
-    def get_db(request: Request) -> Generator[Session, None, None]:
+    def get_db(request: Request) -> Generator[Session]:
         db = request.app.state.SessionLocal()
         try:
             yield db
         finally:
             db.close()
+
+    db_dependency = Depends(get_db)
 
     @app.get("/", include_in_schema=False)
     def dashboard() -> FileResponse:
@@ -60,7 +62,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return {"status": "ok", "service": "service-observability-lab"}
 
     @app.get("/ready")
-    def readiness(db: Session = Depends(get_db)) -> dict[str, str]:
+    def readiness(db: Session = db_dependency) -> dict[str, str]:
         db.execute(text("SELECT 1"))
         return {"status": "ready", "database": "connected"}
 
@@ -69,11 +71,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/api/jobs", response_model=list[JobRead])
-    def list_jobs(db: Session = Depends(get_db)) -> list[Job]:
+    def list_jobs(db: Session = db_dependency) -> list[Job]:
         return list(db.scalars(select(Job).order_by(Job.id.desc())).all())
 
     @app.post("/api/jobs", response_model=JobRead, status_code=status.HTTP_201_CREATED)
-    def create_job(payload: JobCreate, db: Session = Depends(get_db)) -> Job:
+    def create_job(payload: JobCreate, db: Session = db_dependency) -> Job:
         job = Job(title=payload.title, status="queued")
         db.add(job)
         db.commit()
@@ -83,7 +85,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return job
 
     @app.patch("/api/jobs/{job_id}", response_model=JobRead)
-    def update_job(job_id: int, payload: JobUpdate, db: Session = Depends(get_db)) -> Job:
+    def update_job(
+        job_id: int,
+        payload: JobUpdate,
+        db: Session = db_dependency,
+    ) -> Job:
         job = db.get(Job, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -94,7 +100,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return job
 
     @app.delete("/api/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_job(job_id: int, db: Session = Depends(get_db)) -> Response:
+    def delete_job(job_id: int, db: Session = db_dependency) -> Response:
         job = db.get(Job, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
