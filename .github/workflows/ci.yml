@@ -16,7 +16,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements-dev.txt
       - run: ruff check app tests
-      - run: pytest
+      - run: python -m pytest
 
   browser-qa:
     runs-on: ubuntu-latest
