@@ -96,3 +96,24 @@ Python · FastAPI · SQLAlchemy · PostgreSQL · Prometheus · Grafana · OpenTe
 ## Portfolio note
 
 This is a learning and portfolio system, not a claim of production operation at scale. Its purpose is to demonstrate practical understanding of reliability, observability, automated testing and cloud-native deployment patterns.
+
+## Inspect the implementation
+
+- [Health, readiness and job lifecycle](app/main.py)
+- [Prometheus instrumentation](app/metrics.py)
+- [API and database-failure tests](tests/test_api.py)
+- [Local stack](docker-compose.yml)
+
+## Dependency failure and recovery
+
+A failed database query makes /ready return 503 with a stable message. /health remains available. The regression test verifies failure, separation from liveness and recovery without exposing database exception details.
+
+## Operational boundaries
+
+Job status models state transitions; it does not run background jobs. Tests use SQLite. PostgreSQL, Grafana and tracing are integration assets; a real production deployment needs authentication, migrations and operational policy.
+
+## Actual application preview
+
+![Local application with demonstration data](docs/demo.png)
+
+[Watch the recorded demonstration and read the walkthrough](https://tefik-aliu.github.io/#demos). Captured from a local instance, with demonstration data.

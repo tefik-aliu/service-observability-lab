@@ -46,3 +46,20 @@ def test_prometheus_metrics_are_exposed() -> None:
         assert metrics.status_code == 200
         assert "service_lab_http_requests_total" in metrics.text
         assert "service_lab_jobs_by_status" in metrics.text
+
+
+def test_database_failure_affects_readiness_not_liveness(monkeypatch):
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    with make_client() as client:
+        with monkeypatch.context() as patch:
+            def unavailable(*args, **kwargs):
+                raise OperationalError("SELECT 1", {}, Exception("private-db-details"))
+            patch.setattr(Session, "execute", unavailable)
+            failed = client.get("/ready")
+            assert failed.status_code == 503
+            assert failed.json() == {"detail": "Database unavailable"}
+            assert "private-db-details" not in failed.text
+            assert client.get("/health").status_code == 200
+        assert client.get("/ready").status_code == 200
