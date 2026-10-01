@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import build_database
@@ -63,7 +64,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.get("/ready")
     def readiness(db: Session = db_dependency) -> dict[str, str]:
-        db.execute(text("SELECT 1"))
+        try:
+            db.execute(text("SELECT 1"))
+        except SQLAlchemyError as exc:
+            raise HTTPException(status_code=503, detail="Database unavailable") from exc
         return {"status": "ready", "database": "connected"}
 
     @app.get("/metrics", include_in_schema=False)
