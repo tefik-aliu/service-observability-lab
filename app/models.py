@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -21,3 +21,12 @@ class Job(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
+
+
+class JobRequest(Base):
+    """Durable creation receipt, retained even after its job is deleted."""
+
+    __tablename__ = "job_requests"
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    response: Mapped[dict] = mapped_column(JSON, nullable=False)

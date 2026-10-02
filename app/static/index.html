@@ -20,6 +20,9 @@
     li { display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; padding:14px 0; border-bottom:1px solid #273354; }
     small { color:#aeb8d3; }
     a { color:#aab6ff; }
+    button:disabled { opacity:.65; cursor:wait; }
+    li div { min-width:0; overflow-wrap:anywhere; }
+    @media(max-width:600px) { form, li { grid-template-columns:1fr; } input { min-width:0; } }
   </style>
 </head>
 <body>
@@ -34,42 +37,108 @@
     <a href="/docs">Open API documentation</a> · <a href="/metrics">View metrics</a>
   </section>
   <section class="panel">
-    <h2>Create a background job</h2>
+    <h2>Create a job record</h2>
+    <p>This demo stores job states; it does not execute background work.</p>
     <form id="job-form">
-      <input id="job-title" data-testid="job-title" minlength="3" placeholder="Generate weekly operations report" required />
+      <input id="job-title" data-testid="job-title" aria-label="Job title" maxlength="200" minlength="3" placeholder="Generate weekly operations report" required />
       <button data-testid="create-job" type="submit">Create job</button>
     </form>
+    <p id="create-message" role="status" aria-live="polite"></p>
   </section>
   <section class="panel">
     <h2>Jobs</h2>
+    <p id="list-message" role="status"></p>
     <ul id="jobs" data-testid="jobs-list"></ul>
   </section>
 </main>
 <script>
 const jobsEl = document.querySelector('#jobs');
-async function loadJobs() {
-  const response = await fetch('/api/jobs');
-  const jobs = await response.json();
-  jobsEl.innerHTML = jobs.map(job => `
-    <li data-testid="job-row">
-      <div><strong>${job.title}</strong><br><small>#${job.id} · ${new Date(job.created_at).toLocaleString()}</small></div>
-      <select data-id="${job.id}" aria-label="Status for ${job.title}">
-        ${['queued','running','completed','failed'].map(s => `<option ${s === job.status ? 'selected' : ''}>${s}</option>`).join('')}
-      </select>
-    </li>`).join('') || '<li>No jobs yet.</li>';
+const input = document.querySelector('#job-title');
+const button = document.querySelector('[data-testid="create-job"]');
+const message = document.querySelector('#create-message');
+const listMessage = document.querySelector('#list-message');
+let pending = null;
+
+async function request(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) throw new Error(`Request failed (${response.status}).`);
+  return response;
 }
+async function loadJobs() {
+  try {
+    const response = await request('/api/jobs');
+    const jobs = await response.json();
+    jobsEl.replaceChildren();
+    for (const job of jobs) {
+      const row = document.createElement('li');
+      row.dataset.testid = 'job-row';
+      const info = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = job.title;
+      const detail = document.createElement('small');
+      detail.textContent = `#${job.id} · ${new Date(job.created_at).toLocaleString()}`;
+      info.append(title, document.createElement('br'), detail);
+      const select = document.createElement('select');
+      select.dataset.id = job.id;
+      select.setAttribute('aria-label', `Status for ${job.title}`);
+      for (const status of ['queued','running','completed','failed']) {
+        const option = document.createElement('option');
+        option.value = option.textContent = status;
+        select.append(option);
+      }
+      select.value = job.status;
+      select.dataset.saved = job.status;
+      row.append(info, select);
+      jobsEl.append(row);
+    }
+    listMessage.textContent = jobs.length ? '' : 'No jobs yet.';
+  } catch (_) { listMessage.textContent = 'Could not load jobs. Reload the page to try again.'; }
+}
+
 document.querySelector('#job-form').addEventListener('submit', async event => {
   event.preventDefault();
-  const input = document.querySelector('#job-title');
-  await fetch('/api/jobs', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:input.value})});
-  input.value = '';
-  await loadJobs();
+  if (button.disabled) return;
+  const title = input.value.trim();
+  if (title.length < 3) { message.textContent = 'Use at least three non-space characters.'; return; }
+  // Keep the same operation key after an uncertain response, while this page stays open.
+  if (!pending || pending.title !== title) pending = { title, key: crypto.randomUUID() };
+  button.disabled = input.disabled = true;
+  message.textContent = 'Saving…';
+  try {
+    const response = await request('/api/jobs', {
+      method:'POST',
+      headers:{'Content-Type':'application/json', 'Idempotency-Key':pending.key},
+      body:JSON.stringify({title:pending.title})
+    });
+    const job = await response.json();
+    message.textContent = response.headers.get('Idempotency-Replayed') === 'true'
+      ? `Job #${job.id} was already saved. No duplicate created.` : `Job #${job.id} created.`;
+    pending = null;
+    input.value = '';
+    button.textContent = 'Create job';
+    await loadJobs();
+  } catch (_) {
+    message.textContent = 'Could not confirm the save. Retry with the same title to avoid a duplicate. Keep this page open.';
+    button.textContent = 'Retry save';
+  } finally { button.disabled = input.disabled = false; }
+});
+input.addEventListener('input', () => {
+  if (pending && input.value.trim() !== pending.title) {
+    button.textContent = 'Create job';
+    message.textContent = 'A different title starts a new request. The earlier save may have succeeded.';
+  }
 });
 jobsEl.addEventListener('change', async event => {
-  if (event.target.matches('select[data-id]')) {
-    await fetch(`/api/jobs/${event.target.dataset.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:event.target.value})});
+  const select = event.target;
+  if (!select.matches('select[data-id]')) return;
+  select.disabled = true;
+  try {
+    await request(`/api/jobs/${select.dataset.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:select.value})});
     await loadJobs();
-  }
+  } catch (_) {
+    select.value = select.dataset.saved;
+    listMessage.textContent = 'Could not confirm the status change. Reload to see the saved state.';
+  } finally { select.disabled = false; }
 });
 loadJobs();
 </script>

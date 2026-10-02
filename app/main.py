@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import FileResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import func, select, text
@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import build_database
+from app.job_creation import create_once
 from app.metrics import JOBS_BY_STATUS, JOBS_CREATED, metrics_middleware
 from app.models import Base, Job
 from app.schemas import JobCreate, JobRead, JobUpdate
@@ -35,7 +36,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Service Observability Lab",
-        version="1.0.0",
+        version="1.1.0",
         description=(
             "A production-style FastAPI service with metrics, tracing and deployment assets."
         ),
@@ -79,14 +80,20 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return list(db.scalars(select(Job).order_by(Job.id.desc())).all())
 
     @app.post("/api/jobs", response_model=JobRead, status_code=status.HTTP_201_CREATED)
-    def create_job(payload: JobCreate, db: Session = db_dependency) -> Job:
-        job = Job(title=payload.title, status="queued")
-        db.add(job)
-        db.commit()
-        db.refresh(job)
-        JOBS_CREATED.inc()
-        refresh_job_gauges(db)
-        return job
+    def create_job(
+        payload: JobCreate,
+        response: Response,
+        db: Session = db_dependency,
+        idempotency_key: str | None = Header(
+            default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"
+        ),
+    ) -> dict:
+        body, replayed = create_once(db, payload.title, idempotency_key)
+        response.headers["Idempotency-Replayed"] = str(replayed).lower()
+        if not replayed:
+            JOBS_CREATED.inc()
+            refresh_job_gauges(db)
+        return body
 
     @app.patch("/api/jobs/{job_id}", response_model=JobRead)
     def update_job(
