@@ -23,6 +23,7 @@ flowchart LR
 ## Features
 
 - FastAPI REST API and interactive dashboard
+- Optional idempotency keys prevent duplicate job records after a lost response
 - PostgreSQL in Docker; SQLite fallback for local tests
 - Prometheus request, latency and business metrics
 - Provisioned Grafana dashboard
@@ -110,7 +111,17 @@ A failed database query makes /ready return 503 with a stable message. /health r
 
 ## Operational boundaries
 
-Job status models state transitions; it does not run background jobs. Tests use SQLite. PostgreSQL, Grafana and tracing are integration assets; a real production deployment needs authentication, migrations and operational policy.
+Job status models state transitions; it does not run background jobs. API tests use SQLite; CI also runs the creation/retry contract against PostgreSQL 16. Grafana and tracing remain integration assets; a real production deployment needs authentication, migrations and operational policy.
+
+## Safe retries after a lost response
+
+POST `/api/jobs` accepts an optional `Idempotency-Key`. Reusing a key with the
+same title returns the original creation receipt without another job. Reusing
+it for a different title returns 409. The browser keeps the key after an
+uncertain response and offers an explicit retry.
+
+[Read the failure scenario, contract, storage choices and limitations](docs/retrying-job-creation.md).
+[Implementation](app/job_creation.py) · [Database contract tests](tests/test_idempotency.py) · [Lost-response browser test](qa/service.spec.ts).
 
 ## Actual application preview
 
